@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pediatric Fasting Timer</title>
+    
+    <!-- Load Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Load React and ReactDOM from CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    
+    <!-- Load Babel to compile JSX in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        /* Small fix to hide the app until React renders it, preventing a flash of unstyled content */
+        body { margin: 0; padding: 0; background-color: #f8fafc; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- Custom SVG Icon Components (Replaces lucide-react for standalone HTML) ---
+        const IconBase = ({ children, size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                {children}
+            </svg>
+        );
+        const Clock = (p) => <IconBase {...p}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></IconBase>;
+        const Utensils = (p) => <IconBase {...p}><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></IconBase>;
+        const Droplet = (p) => <IconBase {...p}><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/></IconBase>;
+        const Ban = (p) => <IconBase {...p}><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></IconBase>;
+        const CheckCircle2 = (p) => <IconBase {...p}><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></IconBase>;
+        const AlertTriangle = (p) => <IconBase {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></IconBase>;
+        const Heart = (p) => <IconBase {...p}><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></IconBase>;
+        const Baby = (p) => <IconBase {...p}><path d="M9 12h.01"/><path d="M15 12h.01"/><path d="M10 16c.5.3 1.2.5 2 .5s1.5-.2 2-.5"/><path d="M19 6.3a9 9 0 0 1 1.8 3.9 2 2 0 0 1 0 3.6 9 9 0 0 1-17.6 0 2 2 0 0 1 0-3.6A9 9 0 0 1 12 3c2 0 3.5 1.1 3.5 1.1L14 5l3-1.5 2 2.8Z"/></IconBase>;
+        const Info = (p) => <IconBase {...p}><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></IconBase>;
+
+        // --- Main App Component ---
+        function App() {
+            const [surgeryTime, setSurgeryTime] = useState('');
+            const [isRunning, setIsRunning] = useState(false);
+            const [now, setNow] = useState(new Date());
+            const [alert, setAlert] = useState(null);
+            const lastPhaseRef = useRef(null);
+
+            // Update current time every second
+            useEffect(() => {
+                if (!isRunning) return;
+                const interval = setInterval(() => {
+                    setNow(new Date());
+                }, 1000);
+                return () => clearInterval(interval);
+            }, [isRunning]);
+
+            // Handle phase transitions and alerts
+            useEffect(() => {
+                if (!isRunning || !surgeryTime) return;
+
+                const surgeryDate = new Date(surgeryTime);
+                const diffMs = surgeryDate - now;
+                const hoursRemaining = diffMs / (1000 * 60 * 60);
+
+                let currentPhase = 'green';
+                if (hoursRemaining <= 0) currentPhase = 'surgery';
+                else if (hoursRemaining <= 2) currentPhase = 'red';
+                else if (hoursRemaining <= 4) currentPhase = 'orange';
+                else if (hoursRemaining <= 6) currentPhase = 'yellow';
+
+                // Trigger alert if phase changes to a more restrictive one
+                if (lastPhaseRef.current && lastPhaseRef.current !== currentPhase) {
+                if (currentPhase === 'yellow') {
+                    setAlert({
+                    title: 'Stop Solids & Formula',
+                    message: 'Please stop all solid foods and infant formula now. Breastmilk and clear fluids are still okay.'
+                    });
+                } else if (currentPhase === 'orange') {
+                    setAlert({
+                    title: 'Stop Breastmilk',
+                    message: 'Please stop breastmilk now. Your child may ONLY have clear fluids (like water or apple juice) from this point forward.'
+                    });
+                } else if (currentPhase === 'red') {
+                    setAlert({
+                    title: 'CRITICAL: Stop ALL Fluids',
+                    message: 'Your child must have absolutely nothing to eat or drink until after the surgery. Nil By Mouth.'
+                    });
+                }
+                }
+                
+                lastPhaseRef.current = currentPhase;
+
+            }, [now, isRunning, surgeryTime]);
+
+            const handleStart = (e) => {
+                e.preventDefault();
+                if (!surgeryTime) return;
+                
+                const sTime = new Date(surgeryTime);
+                if (sTime < new Date()) {
+                    setAlert({ title: 'Invalid Time', message: 'Please select a future date and time for the surgery.'});
+                    return;
+                }
+
+                // Initialize phase without triggering alert instantly
+                const diffMs = sTime - new Date();
+                const hoursRemaining = diffMs / (1000 * 60 * 60);
+                if (hoursRemaining <= 2) lastPhaseRef.current = 'red';
+                else if (hoursRemaining <= 4) lastPhaseRef.current = 'orange';
+                else if (hoursRemaining <= 6) lastPhaseRef.current = 'yellow';
+                else lastPhaseRef.current = 'green';
+
+                setIsRunning(true);
+            };
+
+            const handleReset = () => {
+                setIsRunning(false);
+                setSurgeryTime('');
+                lastPhaseRef.current = null;
+            };
+
+            // Calculate rendering variables
+            const targetDate = new Date(surgeryTime);
+            const diffMs = targetDate - now;
+            const hoursRemaining = diffMs / (1000 * 60 * 60);
+            const isPast = diffMs < 0;
+
+            // Formatting helpers
+            const formatTime = (date) => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const formatCountdown = (ms) => {
+                if (ms <= 0) return "0h 0m";
+                const h = Math.floor(ms / (1000 * 60 * 60));
+                const m = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+                return `${h}h ${m}m`;
+            };
+
+            // Cutoff calculation helpers
+            const getCutoff = (hours) => {
+                const d = new Date(targetDate);
+                d.setHours(d.getHours() - hours);
+                return formatTime(d);
+            };
+
+            // Determine current phase details
+            let phaseColor, phaseText, phaseIcon, allowedItems, disallowedItems;
+
+            if (isPast) {
+                phaseColor = "bg-gray-100 text-gray-800 border-gray-300";
+                phaseText = "Surgery Time Passed";
+                phaseIcon = <Clock className="w-12 h-12 text-gray-500 mb-2" />;
+                allowedItems = [];
+                disallowedItems = [
+                { name: "Solids", icon: <Utensils size={20}/> },
+                { name: "Formula", icon: <Baby size={20}/> },
+                { name: "Breastmilk", icon: <Heart size={20}/> },
+                { name: "Clear Fluids", icon: <Droplet size={20}/> }
+                ];
+            } else if (hoursRemaining <= 2) {
+                phaseColor = "bg-red-100 text-red-800 border-red-300 shadow-red-200";
+                phaseText = "Nothing by Mouth (NPO)";
+                phaseIcon = <Ban className="w-12 h-12 text-red-600 mb-2 animate-pulse" />;
+                allowedItems = [];
+                disallowedItems = [
+                { name: "Solids", icon: <Utensils size={20}/> },
+                { name: "Formula", icon: <Baby size={20}/> },
+                { name: "Breastmilk", icon: <Heart size={20}/> },
+                { name: "Clear Fluids", icon: <Droplet size={20}/> }
+                ];
+            } else if (hoursRemaining <= 4) {
+                phaseColor = "bg-orange-100 text-orange-800 border-orange-300 shadow-orange-200";
+                phaseText = "Clear Fluids Only";
+                phaseIcon = <Droplet className="w-12 h-12 text-orange-600 mb-2" />;
+                allowedItems = [
+                { name: "Water, Apple Juice", icon: <Droplet size={20}/> }
+                ];
+                disallowedItems = [
+                { name: "Solids", icon: <Utensils size={20}/> },
+                { name: "Formula", icon: <Baby size={20}/> },
+                { name: "Breastmilk", icon: <Heart size={20}/> }
+                ];
+            } else if (hoursRemaining <= 6) {
+                phaseColor = "bg-yellow-100 text-yellow-800 border-yellow-300 shadow-yellow-200";
+                phaseText = "No Solids or Formula";
+                phaseIcon = <AlertTriangle className="w-12 h-12 text-yellow-600 mb-2" />;
+                allowedItems = [
+                { name: "Breastmilk", icon: <Heart size={20}/> },
+                { name: "Clear Fluids", icon: <Droplet size={20}/> }
+                ];
+                disallowedItems = [
+                { name: "Solids", icon: <Utensils size={20}/> },
+                { name: "Formula", icon: <Baby size={20}/> }
+                ];
+            } else {
+                phaseColor = "bg-green-100 text-green-800 border-green-300 shadow-green-200";
+                phaseText = "Normal Diet Okay";
+                phaseIcon = <CheckCircle2 className="w-12 h-12 text-green-600 mb-2" />;
+                allowedItems = [
+                { name: "Solids", icon: <Utensils size={20}/> },
+                { name: "Formula", icon: <Baby size={20}/> },
+                { name: "Breastmilk", icon: <Heart size={20}/> },
+                { name: "Clear Fluids", icon: <Droplet size={20}/> }
+                ];
+                disallowedItems = [];
+            }
+
+            return (
+                <div className="min-h-screen bg-slate-50 font-sans sm:py-8 flex justify-center">
+                <div className="w-full max-w-md bg-white sm:rounded-2xl sm:shadow-xl overflow-hidden relative flex flex-col h-full sm:h-auto">
+                    
+                    {/* Header */}
+                    <div className="bg-blue-600 text-white p-6 text-center shadow-md z-10">
+                    <h1 className="text-xl font-bold">Safe Surgery Fasting</h1>
+                    <p className="text-blue-100 text-sm mt-1">Pediatric 6-4-2 Guidelines</p>
+                    </div>
+
+                    {/* Setup Screen */}
+                    {!isRunning ? (
+                    <div className="p-6 flex-1 flex flex-col justify-center">
+                        <div className="bg-blue-50 text-blue-800 p-4 rounded-xl mb-8 flex items-start gap-3">
+                        <Info className="w-6 h-6 shrink-0 mt-0.5" />
+                        <p className="text-sm">
+                            Enter your child's scheduled surgery time below. We will create a custom fasting timeline to ensure they are safe for anesthesia.
+                        </p>
+                        </div>
+                        
+                        <form onSubmit={handleStart} className="space-y-6">
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">
+                            Surgery Date & Time
+                            </label>
+                            <input
+                            type="datetime-local"
+                            required
+                            className="w-full p-4 border border-gray-300 rounded-xl text-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                            value={surgeryTime}
+                            onChange={(e) => setSurgeryTime(e.target.value)}
+                            />
+                        </div>
+                        <button
+                            type="submit"
+                            className="w-full bg-blue-600 text-white text-lg font-bold py-4 rounded-xl shadow-lg hover:bg-blue-700 active:scale-95 transition-transform"
+                        >
+                            Create Timeline
+                        </button>
+                        </form>
+                    </div>
+                    ) : (
+                    /* Dashboard Screen */
+                    <div className="flex-1 overflow-y-auto pb-6">
+                        
+                        {/* Countdown Banner */}
+                        <div className="bg-slate-800 text-white p-4 flex justify-between items-center text-sm shadow-inner">
+                        <div className="flex flex-col">
+                            <span className="text-slate-400 font-medium">Surgery At:</span>
+                            <span className="font-bold text-lg">{formatTime(targetDate)}</span>
+                        </div>
+                        <div className="flex flex-col items-end">
+                            <span className="text-slate-400 font-medium">Time Remaining:</span>
+                            <span className="font-bold text-lg">{formatCountdown(diffMs)}</span>
+                        </div>
+                        </div>
+
+                        <div className="p-4 space-y-4">
+                        
+                        {/* Traffic Light Status Card */}
+                        <div className={`p-6 rounded-2xl border-2 flex flex-col items-center justify-center text-center shadow-lg transition-colors duration-500 ${phaseColor}`}>
+                            {phaseIcon}
+                            <h2 className="text-2xl font-black mb-1">{phaseText}</h2>
+                            {hoursRemaining > 0 && hoursRemaining <= 6 && (
+                            <p className="text-sm font-medium opacity-80">
+                                Next change in {formatCountdown(diffMs - Math.floor(hoursRemaining / 2) * 2 * 60 * 60 * 1000)}
+                            </p>
+                            )}
+                        </div>
+
+                        {/* Rules Grid */}
+                        <div className="grid grid-cols-2 gap-4 mt-6">
+                            
+                            {/* Allowed List */}
+                            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                            <h3 className="text-green-800 font-bold mb-3 flex items-center gap-2 border-b border-green-200 pb-2">
+                                <CheckCircle2 className="w-5 h-5" /> Allowed
+                            </h3>
+                            {allowedItems.length === 0 ? (
+                                <p className="text-green-600 text-sm italic py-2">Nothing by mouth.</p>
+                            ) : (
+                                <ul className="space-y-3">
+                                {allowedItems.map((item, idx) => (
+                                    <li key={idx} className="flex items-center gap-3 text-green-900 font-medium">
+                                    <div className="p-1.5 bg-green-200 rounded-lg text-green-700">
+                                        {item.icon}
+                                    </div>
+                                    {item.name}
+                                    </li>
+                                ))}
+                                </ul>
+                            )}
+                            </div>
+
+                            {/* Disallowed List */}
+                            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                            <h3 className="text-red-800 font-bold mb-3 flex items-center gap-2 border-b border-red-200 pb-2">
+                                <Ban className="w-5 h-5" /> Stop
+                            </h3>
+                            {disallowedItems.length === 0 ? (
+                                <p className="text-red-600 text-sm italic py-2">All normal foods okay.</p>
+                            ) : (
+                                <ul className="space-y-3">
+                                {disallowedItems.map((item, idx) => (
+                                    <li key={idx} className="flex items-center gap-3 text-red-900 font-medium line-through opacity-80">
+                                    <div className="p-1.5 bg-red-200 rounded-lg text-red-700">
+                                        {item.icon}
+                                    </div>
+                                    {item.name}
+                                    </li>
+                                ))}
+                                </ul>
+                            )}
+                            </div>
+                        </div>
+
+                        {/* Specific Timelines */}
+                        <div className="mt-6 bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                            <h3 className="font-bold text-gray-800 mb-3 text-sm uppercase tracking-wider">Your Child's Schedule</h3>
+                            
+                            <div className="space-y-4 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 before:to-transparent">
+                            
+                            <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                                <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-white bg-yellow-400 text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
+                                <Utensils size={16} />
+                                </div>
+                                <div className="w-[calc(100%-3rem)] md:w-[calc(50%-2.5rem)] bg-slate-50 p-3 rounded-lg border border-slate-100 shadow-sm">
+                                <p className="font-bold text-slate-800">{getCutoff(6)} <span className="font-normal text-slate-500 text-sm">(6 hrs before)</span></p>
+                                <p className="text-sm text-slate-600">Stop Solids & Formula</p>
+                                </div>
+                            </div>
+
+                            <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                                <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-white bg-orange-400 text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
+                                <Heart size={16} />
+                                </div>
+                                <div className="w-[calc(100%-3rem)] md:w-[calc(50%-2.5rem)] bg-slate-50 p-3 rounded-lg border border-slate-100 shadow-sm">
+                                <p className="font-bold text-slate-800">{getCutoff(4)} <span className="font-normal text-slate-500 text-sm">(4 hrs before)</span></p>
+                                <p className="text-sm text-slate-600">Stop Breastmilk</p>
+                                </div>
+                            </div>
+
+                            <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                                <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-white bg-red-500 text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
+                                <Droplet size={16} />
+                                </div>
+                                <div className="w-[calc(100%-3rem)] md:w-[calc(50%-2.5rem)] bg-slate-50 p-3 rounded-lg border border-slate-100 shadow-sm">
+                                <p className="font-bold text-slate-800">{getCutoff(2)} <span className="font-normal text-slate-500 text-sm">(2 hrs before)</span></p>
+                                <p className="text-sm text-slate-600">Stop Clear Fluids (NPO)</p>
+                                </div>
+                            </div>
+
+                            </div>
+                        </div>
+
+                        {/* Reset Button */}
+                        <button 
+                            onClick={handleReset}
+                            className="mt-6 w-full py-3 text-slate-500 font-medium text-sm border-2 border-slate-200 rounded-xl hover:bg-slate-50"
+                        >
+                            Start Over / Change Time
+                        </button>
+
+                        </div>
+                    </div>
+                    )}
+
+                    {/* Custom Alert Modal (simulates push notification) */}
+                    {alert && (
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl p-6 shadow-2xl w-full max-w-sm transform animate-in fade-in zoom-in duration-200">
+                        <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mb-4 mx-auto">
+                            <AlertTriangle size={24} />
+                        </div>
+                        <h3 className="text-xl font-bold text-center text-slate-900 mb-2">{alert.title}</h3>
+                        <p className="text-slate-600 text-center mb-6">{alert.message}</p>
+                        <button 
+                            onClick={() => setAlert(null)}
+                            className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-colors"
+                        >
+                            I Understand
+                        </button>
+                        </div>
+                    </div>
+                    )}
+
+                </div>
+                </div>
+            );
+        }
+
+        // --- Render the App ---
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
